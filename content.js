@@ -33,6 +33,9 @@
   let profileOpenedAt = 0;
   const profiles = new Map(); // lower-case handle -> profile data
   const notifs = new Map(); // key -> notification
+  let currentFolder = "home"; // list shown on the left: "home", "notifications", "liked" or "bookmarks"
+  let myHandle = null; // your own handle, read from X's sidebar (needed for the Liked folder)
+  let query = ""; // search box text, lower case
   const STATUS_RE = /^\/([^/]+)\/status\/(\d+)/;
 
   const RESERVED = new Set([
@@ -44,6 +47,10 @@
     const path = location.pathname;
     if (path === "/home") return { kind: "home" };
     if (path === "/notifications") return { kind: "notifications" };
+    if (path === "/i/bookmarks") return { kind: "bookmarks" };
+    const lm = path.match(/^\/([A-Za-z0-9_]{1,15})\/likes\/?$/);
+    // Only your own likes: X hides other people's likes anyway.
+    if (lm && (!myHandle || lm[1].toLowerCase() === myHandle.toLowerCase())) return { kind: "likes", handle: lm[1] };
     const m = path.match(STATUS_RE);
     if (m) return { kind: "status", handle: m[1], id: m[2] };
     const pm = path.match(/^\/([A-Za-z0-9_]{1,15})\/?$/);
@@ -150,11 +157,30 @@
     };
   }
 
+  function findMyHandle() {
+    if (myHandle) return myHandle;
+    const a = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
+    const m = a && (a.getAttribute("href") || "").match(/^\/([A-Za-z0-9_]{1,15})$/);
+    if (m) myHandle = m[1];
+    return myHandle;
+  }
+
   function scan() {
+    findMyHandle();
     const route = routeInfo();
     const articles = document.querySelectorAll('article[data-testid="tweet"]');
 
-    if (route.kind === "home") {
+    if (route.kind === "likes" || route.kind === "bookmarks") {
+      const f = route.kind === "likes" ? likedF : savedF;
+      articles.forEach((a) => {
+        const p = scrapeArticle(a);
+        if (!p) return;
+        if (!posts.has(p.id)) posts.set(p.id, p);
+        else syncFlags(posts.get(p.id), p);
+        if (!f.rows.has(p.id)) addRow(posts.get(p.id), f);
+      });
+      f.empty.hidden = f.rows.size > 0;
+    } else if (route.kind === "home") {
       articles.forEach((a) => {
         const p = scrapeArticle(a);
         if (!p) return;
@@ -230,16 +256,22 @@
   search.placeholder = "Search";
   search.setAttribute("aria-label", "Search");
   titlebar.append(brand, search, el("div", "fm-spacer"), el("div", "fm-me", "ME"));
+  // Search filters the list that is showing (posts already loaded: name, handle and text).
+  search.addEventListener("input", () => {
+    query = search.value.trim().toLowerCase();
+    allFolders.forEach((f) => f.list.querySelectorAll(".fm-row").forEach(matchRow));
+    updateHead();
+  });
 
   // Ribbon (the censor switch is disguised as the "Focused / Other" toggle)
   const ribbon = el("div", "fm-ribbon");
   const tabs = el("div", "fm-tabs");
   const tabHome = el("button", "fm-tab fm-active", "Home");
   tabHome.type = "button";
-  tabHome.addEventListener("click", () => navigate("/home"));
+  tabHome.addEventListener("click", () => openFolder("home"));
   const tabNotif = el("button", "fm-tab", "Notifications");
   tabNotif.type = "button";
-  tabNotif.addEventListener("click", () => navigate("/notifications"));
+  tabNotif.addEventListener("click", () => openFolder("notifications"));
   tabs.append(tabHome, tabNotif);
   const commands = el("div", "fm-commands");
   const censorBtn = el("button", "fm-pill");
@@ -272,19 +304,15 @@
     return b;
   }
   const unreadBadge = el("span", "fm-folder-n", "");
-  const homeFolder = folder("Home", () => navigate("/home"));
+  const homeFolder = folder("Home", () => openFolder("home"));
   homeFolder.classList.add("fm-active");
   homeFolder.append(unreadBadge);
   const notifBadge = el("span", "fm-folder-n", "");
-  const notifFolder = folder("Notifications", () => navigate("/notifications"));
+  const notifFolder = folder("Notifications", () => openFolder("notifications"));
   notifFolder.append(notifBadge);
-  folders.append(
-    el("div", "fm-folder-h", "Favorites"),
-    homeFolder,
-    notifFolder,
-    folder("Liked"),
-    folder("Bookmarks")
-  );
+  const likedFolder = folder("Liked", () => openFolder("liked"));
+  const savedFolder = folder("Bookmarks", () => openFolder("bookmarks"));
+  folders.append(el("div", "fm-folder-h", "Favorites"), homeFolder, notifFolder, likedFolder, savedFolder);
 
   const listWrap = el("section", "fm-listwrap");
   listWrap.setAttribute("aria-label", "Message list");
@@ -296,8 +324,49 @@
   const notifEmpty = el("div", "fm-empty", "Loading notifications…");
   notifList.append(notifEmpty);
   const notifRows = [];
+
+  // Lists of posts. Home keeps its own names (list, rows, emptyEl) used all over the file.
+  const homeF = { name: "home", label: "Home", list, empty: emptyEl, rows, btn: homeFolder, route: "home" };
+  function postFolder(name, label, loadingText, btn, route) {
+    const f = { name, label, list: el("div", "fm-list"), empty: el("div", "fm-empty", loadingText), rows: new Map(), btn, route, loadingText };
+    f.list.hidden = true;
+    f.list.append(f.empty);
+    return f;
+  }
+  const likedF = postFolder("liked", "Liked", "Loading your liked posts…", likedFolder, "likes");
+  const savedF = postFolder("bookmarks", "Bookmarks", "Loading your bookmarks…", savedFolder, "bookmarks");
+  const postFolders = [homeF, likedF, savedF];
+  const notifF = { name: "notifications", label: "Notifications", list: notifList, btn: notifFolder, route: "notifications" };
+  const allFolders = [homeF, notifF, likedF, savedF];
+  const folderByName = (n) => allFolders.find((f) => f.name === n) || homeF;
+
+  function folderPath(name) {
+    if (name === "notifications") return "/notifications";
+    if (name === "bookmarks") return "/i/bookmarks";
+    if (name === "liked") return findMyHandle() ? "/" + myHandle + "/likes" : null;
+    return "/home";
+  }
+
+  function openFolder(name) {
+    const path = folderPath(name);
+    if (!path) {
+      toast("Could not find your own profile on the page, so Liked can't be opened yet. Try again in a moment.");
+      return;
+    }
+    currentFolder = name;
+    const f = folderByName(name);
+    if (f.loadingText && !f.rows.size) {
+      f.empty.textContent = f.loadingText;
+      setTimeout(() => {
+        if (!f.rows.size) f.empty.textContent = "Nothing here yet.";
+      }, 8000);
+    }
+    navigate(path);
+    sync();
+    setTimeout(scan, 80); // in case X was already on that page
+  }
   const listHead = el("div", "fm-listhead", "Home");
-  listWrap.append(listHead, list, notifList);
+  listWrap.append(listHead, list, notifList, likedF.list, savedF.list);
 
   const reading = el("article", "fm-reading");
   reading.setAttribute("aria-label", "Reading pane");
@@ -354,9 +423,11 @@
   root.append(titlebar, ribbon, panes, fake);
   document.documentElement.append(root);
 
-  function addRow(p) {
-    const row = el("button", "fm-row fm-unread");
+  function addRow(p, f = homeF) {
+    // Only Home marks new posts as unread; Liked and Bookmarks are posts you have already seen.
+    const row = el("button", f === homeF ? "fm-row fm-unread" : "fm-row");
     if (p.liked) row.classList.add("fm-liked");
+    row.dataset.q = searchText(p.name, p.handle, p.text);
     row.type = "button";
     const main = el("div", "fm-row-main");
     const top = el("div", "fm-row-top");
@@ -382,9 +453,31 @@
       show(p.id);
       navigate("/" + encodeURIComponent(p.handleRaw) + "/status/" + p.id); // loads the replies behind the overlay
     });
-    list.append(row);
-    rows.set(p.id, row);
-    updateUnread();
+    f.list.append(row);
+    f.rows.set(p.id, row);
+    paintRows(p);
+    matchRow(row);
+    if (f === homeF) updateUnread();
+    else updateHead();
+  }
+
+  function searchText(...parts) {
+    return parts.filter(Boolean).join(" ").replace(/\s+/g, " ").toLowerCase();
+  }
+
+  function matchRow(row) {
+    row.classList.toggle("fm-nomatch", !!query && !(row.dataset.q || "").includes(query));
+  }
+
+  // List title, plus the number of matches while searching.
+  function updateHead() {
+    const f = folderByName(currentFolder);
+    let text = f.label;
+    if (query) {
+      const n = f.list.querySelectorAll(".fm-row:not(.fm-nomatch):not(.fm-gone)").length;
+      text += " · " + (n === 1 ? "1 match" : n + " matches");
+    }
+    if (listHead.textContent !== text) listHead.textContent = text;
   }
 
   function updateUnread() {
@@ -402,10 +495,12 @@
     mode = "post";
     profileHandle = null;
     if (composeTarget && composeTarget.parentId !== id) closeCompose(); // the draft text stays saved
-    rows.forEach((r, k) => {
-      r.classList.toggle("fm-selected", k === id);
-      if (k === id) r.classList.remove("fm-unread");
-    });
+    postFolders.forEach((f) =>
+      f.rows.forEach((r, k) => {
+        r.classList.toggle("fm-selected", k === id);
+        if (k === id) r.classList.remove("fm-unread");
+      })
+    );
     updateUnread();
 
     readingInner.replaceChildren();
@@ -555,7 +650,7 @@
     const prof = profiles.get(profileHandle.toLowerCase());
     currentId = null;
     likeBtn = saveBtn = convEl = null;
-    rows.forEach((r) => r.classList.remove("fm-selected"));
+    postFolders.forEach((f) => f.rows.forEach((r) => r.classList.remove("fm-selected")));
     readingInner.replaceChildren();
     if (!prof) {
       const waited = Date.now() - profileOpenedAt;
@@ -685,6 +780,8 @@
     main.append(top, el("div", "fm-subject", n.subject));
     if (n.preview) main.append(el("div", "fm-preview", n.preview));
     row.append(main);
+    row.dataset.q = searchText(n.title, n.subject, n.preview);
+    matchRow(row);
     row.addEventListener("click", () => openNotif(n, row));
     notifList.append(row);
     notifRows.push(row);
@@ -800,9 +897,21 @@
     if (known.liked === fresh.liked && known.saved === fresh.saved) return;
     known.liked = fresh.liked;
     known.saved = fresh.saved;
-    const row = rows.get(known.id);
-    if (row) row.classList.toggle("fm-liked", !!known.liked);
+    paintRows(known);
     if (known.paint) known.paint();
+  }
+
+  // Updates every list row of a post: the like flag, and in Liked / Bookmarks the row
+  // disappears once the post is no longer liked / saved.
+  function paintRows(item) {
+    postFolders.forEach((f) => {
+      const row = f.rows.get(item.id);
+      if (!row) return;
+      row.classList.toggle("fm-liked", !!item.liked);
+      if (f === likedF) row.classList.toggle("fm-gone", !item.liked);
+      if (f === savedF) row.classList.toggle("fm-gone", !item.saved);
+    });
+    updateHead();
   }
 
   // Reads X's own like/bookmark button for an item. on = currently liked/saved.
@@ -863,8 +972,7 @@
 
   function paintItem(item) {
     if (item.paint) item.paint();
-    const row = rows.get(item.id);
-    if (row) row.classList.toggle("fm-liked", !!item.liked);
+    paintRows(item);
   }
 
   // ---------- replying (drives X's own reply dialog behind the overlay) ----------
@@ -1099,23 +1207,24 @@
   // ---------- loading more ----------
   function maybeLoadMore(fromScroll) {
     const kind = routeInfo().kind;
-    const active = kind === "notifications" ? notifList : list;
+    const f = folderByName(currentFolder);
+    const active = f.list;
     const nearEnd = active.scrollHeight - active.scrollTop - active.clientHeight < 300;
     const now = Date.now();
     if (root.hidden || !nearEnd || now - lastLoad <= 1500) return;
     if (kind === "status" || kind === "profile") {
       // Only when you scroll the list yourself, so an open profile is never pulled away.
-      if (fromScroll === true && posts.size > 3 && rows.size > 3) {
+      const path = folderPath(f.name);
+      if (fromScroll === true && path && active.querySelectorAll(".fm-row").length > 3) {
         lastLoad = now;
-        navigate("/home"); // back to the feed; the next check loads more posts
+        navigate(path); // back to the folder's page; the next check loads more
       }
-    } else {
+    } else if (kind === f.route) {
       lastLoad = now;
       window.scrollTo(0, document.documentElement.scrollHeight); // makes X fetch the next batch
     }
   }
-  list.addEventListener("scroll", () => maybeLoadMore(true));
-  notifList.addEventListener("scroll", () => maybeLoadMore(true));
+  allFolders.forEach((f) => f.list.addEventListener("scroll", () => maybeLoadMore(true)));
   setInterval(maybeLoadMore, 2000);
 
   // ---------- keep in sync with the page ----------
@@ -1132,14 +1241,17 @@
   function sync() {
     const kind = routeInfo().kind;
     const on = kind !== "other";
-    const inNotifs = kind === "notifications";
-    list.hidden = inNotifs;
-    notifList.hidden = !inNotifs;
-    listHead.textContent = inNotifs ? "Notifications" : "Home";
-    homeFolder.classList.toggle("fm-active", !inNotifs);
-    notifFolder.classList.toggle("fm-active", inNotifs);
-    tabHome.classList.toggle("fm-active", !inNotifs);
-    tabNotif.classList.toggle("fm-active", inNotifs);
+    // A folder's own page selects that folder. Post and profile pages keep the folder you
+    // came from, so e.g. opening a notification leaves the notifications list in view.
+    const byRoute = { home: "home", notifications: "notifications", likes: "liked", bookmarks: "bookmarks" }[kind];
+    if (byRoute) currentFolder = byRoute;
+    allFolders.forEach((f) => {
+      f.list.hidden = f.name !== currentFolder;
+      f.btn.classList.toggle("fm-active", f.name === currentFolder);
+    });
+    updateHead();
+    tabHome.classList.toggle("fm-active", currentFolder === "home");
+    tabNotif.classList.toggle("fm-active", currentFolder === "notifications");
     document.documentElement.classList.toggle("fm-on", on);
     root.hidden = !on;
     if (!on) return;

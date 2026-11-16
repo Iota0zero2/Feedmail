@@ -133,6 +133,7 @@ html.fm-on { scrollbar-width: none; }
 #fm-root .fm-row:hover { background: var(--hover-row); }
 #fm-root .fm-row.fm-selected { background: var(--selected); }
 #fm-root .fm-row.fm-unread { border-left-color: var(--accent-text); }
+#fm-root .fm-row.fm-nomatch, #fm-root .fm-row.fm-gone { display: none; } /* search filter / unliked or unsaved */
 .fm-row-main { flex: 1; min-width: 0; }
 .fm-row-top { display: flex; align-items: baseline; gap: 8px; }
 .fm-name { flex: 1; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
