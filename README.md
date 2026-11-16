@@ -93,3 +93,7 @@ Oldest first; the newest version is at the bottom.
 - Unliking a post in Liked, or unsaving one in Bookmarks, removes it from that list straight away.
 - Opening a post or profile now keeps the list you came from on screen. Before, opening a notification switched the list back to Home.
 - The Home and Notifications tabs in the ribbon light up only for their own lists; neither is highlighted while you're in Liked or Bookmarks.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Feed Mail is not affiliated with X.
