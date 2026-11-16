@@ -1,4 +1,4 @@
-# Feed Mail (v0.6)
+# Feed Mail (v0.6.1)
 
 A Chrome extension that shows your own x.com home timeline in a mail-client layout.
 
@@ -66,9 +66,16 @@ To update: get the new files (`git pull`, or download the ZIP again into the sam
 - Fixed: "Loading your timeline…" disappeared from an empty Home list once you had opened a profile or notification.
 - The version in `manifest.json` now matches this README (it said 0.1.0 before).
 
+## New in 0.6.1: unliking works
+
+- **Unlike and unsave now work** from the reading pane and from replies. Earlier versions checked X's button once, 1.5 seconds after the click. When X was slower than that (often the case for unlikes), Feed Mail wrongly said "X did not accept that like change" and flipped the button back, although X had accepted it.
+- Feed Mail now keeps checking X's own button for up to 6 seconds, and also copes with X redrawing the post meanwhile.
+- Whether a click likes or unlikes is decided by X's button at that moment, not by Feed Mail's possibly out-of-date copy.
+- Clicking Like again while the previous click is still going through is ignored, so a quick double click can't send two clicks to X.
+- If X really refuses, the message now names what was refused ("X did not accept that unlike") and the button shows the real state.
+
 ## Known limits
 
 - It reads the real page underneath, so it can break when X changes its markup. The selectors are in `scrapeArticle()`, `scanProfile()` and `scanNotifications()` in `content.js`.
 - Posts appear in the order they were first seen, so new posts that X inserts at the top land at the bottom of the list for now.
 - The search box and the Liked and Bookmarks folders are placeholders.
-- Unliking was rejected by X in testing, so it is not relied on.

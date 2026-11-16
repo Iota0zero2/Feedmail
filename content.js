@@ -805,14 +805,23 @@
     if (known.paint) known.paint();
   }
 
-  function toggle(kind, item, retried) {
-    const a = findArticle(item.id);
+  // Reads X's own like/bookmark button for an item. on = currently liked/saved.
+  function readButton(kind, id) {
+    const a = findArticle(id);
     const sel =
       kind === "like"
         ? '[data-testid="like"], [data-testid="unlike"]'
         : '[data-testid="bookmark"], [data-testid="removeBookmark"]';
     const btn = a && a.querySelector(sel);
-    if (!btn) {
+    if (!btn) return null;
+    return { btn, on: btn.getAttribute("data-testid") === (kind === "like" ? "unlike" : "removeBookmark") };
+  }
+
+  async function toggle(kind, item, retried) {
+    const flag = kind === "like" ? "liked" : "saved";
+    if (item.busy) return; // a click on this item is still settling: ignore double clicks
+    const state = readButton(kind, item.id);
+    if (!state) {
       const cur = posts.get(currentId);
       const route = routeInfo();
       if (!retried && cur && !(route.kind === "status" && route.id === currentId)) {
@@ -823,28 +832,39 @@
       }
       return;
     }
-    btn.click();
-    if (kind === "like") item.liked = !item.liked;
-    else item.saved = !item.saved;
+
+    // The target is the opposite of what X's button shows *now*, not of our cached copy,
+    // which can be out of date (e.g. liked or unliked elsewhere).
+    const want = !state.on;
+    item.busy = true;
+    item.pendingUntil = Date.now() + 8000; // keep scans from overwriting the optimistic state
+    item[flag] = want;
+    paintItem(item);
+    state.btn.click();
+
+    // X can take a few seconds (unlikes especially) and may re-render the post, so keep
+    // re-reading its button instead of checking once after a fixed delay.
+    const ok = await waitFor(() => {
+      const s = readButton(kind, item.id);
+      return s && s.on === want;
+    }, 6000);
+    item.busy = false;
+    item.pendingUntil = 0;
+
+    const art = findArticle(item.id);
+    const fresh = art && scrapeArticle(art);
+    if (!ok) {
+      const verb = kind === "like" ? (want ? "like" : "unlike") : want ? "save" : "unsave";
+      toast(fresh ? "X did not accept that " + verb + ". Showing the real state." : "Could not check whether the " + verb + " went through. Check on x.com.");
+    }
+    if (fresh) syncFlags(item, fresh);
+    else paintItem(item);
+  }
+
+  function paintItem(item) {
     if (item.paint) item.paint();
     const row = rows.get(item.id);
     if (row) row.classList.toggle("fm-liked", !!item.liked);
-
-    // Give X a moment, then read the real state back. If X refused the change
-    // (rate limit, server error), say so instead of pretending it worked.
-    const want = kind === "like" ? !!item.liked : !!item.saved;
-    item.pendingUntil = Date.now() + 1500;
-    setTimeout(() => {
-      item.pendingUntil = 0;
-      const art = findArticle(item.id);
-      const fresh = art && scrapeArticle(art);
-      if (!fresh) return;
-      const real = kind === "like" ? fresh.liked : fresh.saved;
-      if (real !== want) {
-        toast("X did not accept that " + kind + " change. Showing the real state.");
-      }
-      syncFlags(item, fresh);
-    }, 1500);
   }
 
   // ---------- replying (drives X's own reply dialog behind the overlay) ----------
