@@ -209,7 +209,7 @@
     } else if (route.kind === "notifications") {
       scanNotifications();
     }
-    emptyEl.hidden = posts.size > 0;
+    emptyEl.hidden = rows.size > 0; // posts also holds profile/notification posts that have no Home row
   }
 
   // ---------- UI ----------
@@ -236,12 +236,22 @@
   const tabs = el("div", "fm-tabs");
   const tabHome = el("button", "fm-tab fm-active", "Home");
   tabHome.type = "button";
-  tabs.append(tabHome);
+  tabHome.addEventListener("click", () => navigate("/home"));
+  const tabNotif = el("button", "fm-tab", "Notifications");
+  tabNotif.type = "button";
+  tabNotif.addEventListener("click", () => navigate("/notifications"));
+  tabs.append(tabHome, tabNotif);
   const commands = el("div", "fm-commands");
   const censorBtn = el("button", "fm-pill");
   censorBtn.type = "button";
   censorBtn.addEventListener("click", () => setCensor(!censored, true));
-  commands.append(censorBtn);
+  const themeBtn = el("button", "fm-pill");
+  themeBtn.type = "button";
+  themeBtn.title = "Switch between system, light and dark theme";
+  themeBtn.addEventListener("click", () =>
+    setTheme({ auto: "light", light: "dark", dark: "auto" }[theme] || "auto", true)
+  );
+  commands.append(censorBtn, themeBtn);
   ribbon.append(tabs, commands);
 
   // Panes
@@ -265,7 +275,9 @@
   const homeFolder = folder("Home", () => navigate("/home"));
   homeFolder.classList.add("fm-active");
   homeFolder.append(unreadBadge);
+  const notifBadge = el("span", "fm-folder-n", "");
   const notifFolder = folder("Notifications", () => navigate("/notifications"));
+  notifFolder.append(notifBadge);
   folders.append(
     el("div", "fm-folder-h", "Favorites"),
     homeFolder,
@@ -676,10 +688,17 @@
     row.addEventListener("click", () => openNotif(n, row));
     notifList.append(row);
     notifRows.push(row);
+    updateNotifUnread();
+  }
+
+  function updateNotifUnread() {
+    const n = notifRows.filter((r) => r.classList.contains("fm-unread")).length;
+    notifBadge.textContent = n ? String(n) : "";
   }
 
   function openNotif(n, row) {
     row.classList.remove("fm-unread");
+    updateNotifUnread();
     notifRows.forEach((r) => r.classList.remove("fm-selected"));
     row.classList.add("fm-selected");
     const sm = n.path && n.path.match(STATUS_RE);
@@ -1017,7 +1036,27 @@
     if (save && store) store.set({ censored: on });
   }
   setCensor(true, false);
-  if (store) store.get({ censored: true }, (v) => setCensor(!!v.censored, false));
+
+  // ---------- theme: "auto" follows the system setting ----------
+  let theme = "auto";
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  function applyTheme() {
+    root.classList.toggle("fm-dark", theme === "dark" || (theme === "auto" && darkQuery.matches));
+  }
+  function setTheme(t, save) {
+    theme = t;
+    themeBtn.textContent = "Theme: " + { auto: "System", light: "Light", dark: "Dark" }[t];
+    applyTheme();
+    if (save && store) store.set({ theme: t });
+  }
+  darkQuery.addEventListener("change", applyTheme);
+  setTheme("auto", false);
+
+  if (store)
+    store.get({ censored: true, theme: "auto" }, (v) => {
+      setCensor(!!v.censored, false);
+      setTheme(["auto", "light", "dark"].includes(v.theme) ? v.theme : "auto", false);
+    });
 
   // ---------- panic view and keys ----------
   function togglePanic() {
@@ -1030,7 +1069,8 @@
     if (root.hidden) return;
     if (e.type === "keydown") {
       if (e.key === "Escape") togglePanic();
-      else if (e.altKey && e.key.toLowerCase() === "q") setCensor(!censored, true);
+      // e.code, not e.key: on a Mac, Option+Q types "œ", so e.key is never "q".
+      else if (e.altKey && e.code === "KeyQ") setCensor(!censored, true);
     }
     e.stopImmediatePropagation(); // no preventDefault, so typing in our search box still works
   }
@@ -1078,6 +1118,8 @@
     listHead.textContent = inNotifs ? "Notifications" : "Home";
     homeFolder.classList.toggle("fm-active", !inNotifs);
     notifFolder.classList.toggle("fm-active", inNotifs);
+    tabHome.classList.toggle("fm-active", !inNotifs);
+    tabNotif.classList.toggle("fm-active", inNotifs);
     document.documentElement.classList.toggle("fm-on", on);
     root.hidden = !on;
     if (!on) return;
@@ -1094,6 +1136,16 @@
     });
   }
   setInterval(sync, 500);
+  // X rewrites the title and icon on every page change (e.g. "(3) Home / X"). Put ours back
+  // immediately instead of waiting for the next 500 ms tick, so the real title never flashes.
+  // sync() only writes when something differs, so this does not loop.
+  new MutationObserver(sync).observe(document.head, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["href"],
+  });
   sync();
   scan();
 })();

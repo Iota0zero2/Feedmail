@@ -1,20 +1,22 @@
-# Feed Mail (v0.5)
+# Feed Mail (v0.6)
 
 A Chrome extension that shows your own x.com home timeline in a mail-client layout.
 
 ## Install
 
-1. Unzip the folder.
+1. Get the files: either `git clone https://github.com/Iota0zero2/Feedmail.git`, or on GitHub click **Code → Download ZIP** and unzip it.
 2. Open `chrome://extensions` and switch on **Developer mode**.
-3. Click **Load unpacked** and pick the unzipped `feedmail-ext` folder.
+3. Click **Load unpacked** and pick the folder that contains `manifest.json`.
 4. Open https://x.com/home (reload the tab if it was already open) while logged in.
+
+To update: get the new files (`git pull`, or download the ZIP again into the same folder), then press the reload icon on Feed Mail in `chrome://extensions` and reload the x.com tab.
 
 ## What works
 
 - Home feed as a message list: sender, first line as subject, preview text, small thumbnail.
 - Click an item to read the text larger, with images shown big in the reading pane.
 - Unread markers (bold blue) clear when you open an item.
-- **Focused / Other** button in the ribbon is the image censor. "Focused" means every image is blurred, including the big ones (click a big image to reveal just that one). The choice is remembered. `Alt+Q` toggles it too. Default is censored.
+- **Focused / Other** button in the ribbon is the image censor. "Focused" means every image is blurred, including the big ones (click a big image to reveal just that one). The choice is remembered. `Alt+Q` (Option+Q on a Mac) toggles it too. Default is censored.
 - **Esc** swaps the whole view for a plain empty calendar. Press it again to come back.
 - Tab title and icon are changed to "Inbox - Mail" with an envelope.
 - Keys are blocked from reaching X while the view is up, so X's one-letter shortcuts (like "l" to like) can't fire on the hidden page.
@@ -54,10 +56,19 @@ A Chrome extension that shows your own x.com home timeline in a mail-client layo
 - While a profile is open, scrolling the list to the end no longer jumps back to the feed unless you scroll the list yourself.
 - **Load more posts** at the end of a profile's post list fetches the next batch. The pane keeps its scroll position while posts load.
 
+## New in 0.6: notifications tab and dark mode
+
+- **Notifications tab** in the ribbon, next to Home. It does the same as the Notifications folder on the left, and the tab and folder stay highlighted together.
+- The Notifications folder shows how many notifications you haven't opened yet.
+- **Dark mode:** the **Theme** button in the ribbon switches between System (follows your computer's light/dark setting, the default), Light and Dark. The choice is remembered. The calendar shown by **Esc** follows the theme too.
+- Fixed: `Alt+Q` (Option+Q) did nothing on a Mac, because the Mac turns Option+Q into "œ". It now works on every keyboard layout.
+- Fixed: the real X tab title (like "(3) Home / X") could show for up to half a second after moving between pages. The fake title is now put back immediately.
+- Fixed: "Loading your timeline…" disappeared from an empty Home list once you had opened a profile or notification.
+- The version in `manifest.json` now matches this README (it said 0.1.0 before).
+
 ## Known limits
 
 - It reads the real page underneath, so it can break when X changes its markup. The selectors are in `scrapeArticle()`, `scanProfile()` and `scanNotifications()` in `content.js`.
 - Posts appear in the order they were first seen, so new posts that X inserts at the top land at the bottom of the list for now.
 - The search box and the Liked and Bookmarks folders are placeholders.
 - Unliking was rejected by X in testing, so it is not relied on.
-- Planned: dark mode.
