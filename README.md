@@ -1,4 +1,4 @@
-# Feed Mail (v0.7.0)
+# Feed Mail (v0.7.1)
 
 A Chrome extension that shows your own x.com home timeline in a mail-client layout.
 
@@ -93,6 +93,12 @@ Oldest first; the newest version is at the bottom.
 - Unliking a post in Liked, or unsaving one in Bookmarks, removes it from that list straight away.
 - Opening a post or profile now keeps the list you came from on screen. Before, opening a notification switched the list back to Home.
 - The Home and Notifications tabs in the ribbon light up only for their own lists; neither is highlighted while you're in Liked or Bookmarks.
+
+### 0.7.1: license and README
+
+- Feed Mail is now under the MIT license (see `LICENSE`), which is included in the download.
+- Version history in this README is listed oldest first again.
+- No changes to how the extension works.
 
 ## License
 
